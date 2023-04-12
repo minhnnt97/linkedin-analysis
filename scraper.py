@@ -4,6 +4,7 @@ import re
 import time
 import urllib.parse
 import pandas as pd
+from glob import glob
 from tqdm import tqdm
 from getpass import getpass
 from datetime import datetime
@@ -20,16 +21,18 @@ from linkedin_scraper import actions
 DIR_PROJECT = os.path.dirname(os.path.realpath(__file__))
 DIR_ID = 'job_id_dir'
 DIR_INFO = 'job_info_dir'
+TEST_ID_FILE = 'test.txt'
+TEST_INFO_FILE = 'test.csv'
 
 # ---------------------------------------- ARGUMENT PARSING ---------------------------------------- #
 ap = ArgumentParser(prog='LinkedIn_Scraper')
 ap.add_argument('-c', '--chromedriver', action='store', default='chromedriver',
                 help='Use this flag to pass to the program a path for chromedriver. Default is "./chromedriver".')
 ap.add_argument('-t', '--test', action='store_true',
-                help='Use this flag to run the script in test mode. In test mode, only the test files are edited.\
-                      For example, running "python scraper.py --test --id --info" will read job ids from "test.txt" and\
-                      only scrape info of those jobs and store in "test.csv". Edit "test.txt" if you want to test on\
-                      other job ids.')
+                help=f'Use this flag to run the script in test mode. In test mode, only the test files are edited.\
+                      For example, running "python scraper.py --test --id --info" will read job ids from \
+                      "{TEST_ID_FILE}" and only scrape info of those jobs and store in "{TEST_INFO_FILE}". Edit \
+                      "{TEST_ID_FILE}" if you want to test on other job ids.')
 ap.add_argument('--id', action='store_true',
                 help='Use this flag to scrape new job ids and store in a new file with timestamp.')
 ap.add_argument('--info', action='store_true',
@@ -38,7 +41,7 @@ ap.add_argument('--manual-login', action='store_true',
                 help='Use this flag to enter your login credentials through command line instead of file "login.txt".\
                       To use the file instead, make sure "login.txt" contains only 2 lines with your email/username\
                       on line 1 and password on line 2.')
-args = ap.parse_args()
+args = vars(ap.parse_args())
 
 # ---------------------------------------- DRIVER SETUP ---------------------------------------- #
 options = Options()
@@ -46,7 +49,6 @@ options.add_argument('--headless=new')
 options.add_argument('--no-sandbox')
 options.add_argument('--incognito')
 options.add_argument('-disable-dev-shm-usage')
-options.add_argument('--user-agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"')
 
 if args['chromedriver']:
     chromedriver_path = args['chromedriver']
@@ -62,21 +64,23 @@ service = Service(chromedriver_path)
 DRIVER = webdriver.Chrome(service=service, options=options)
 
 
-# ---------------------------------------- SCRAPING FUNCTIONS ---------------------------------------- #
+# ----------------------------------------  FUNCTIONS ---------------------------------------- #
 # Scrape ID
 def get_all_job_ids_from_page(driver, search_term, location_term, num_page=-1):
+    # Preparing the search URL
     base_url = 'https://www.linkedin.com/jobs'
     keyword_url = f'keywords={urllib.parse.quote(search_term)}'
     location_url = f'location={urllib.parse.quote(location_term)}'
     url = f'{base_url}/?{keyword_url}&{location_url}&refresh=true'
 
+    # Record the timestamp and start scraping
     job_id_scrape_time = datetime.now()
     print(f'DATE & TIME: {job_id_scrape_time.strftime("%Y/%m/%d %H:%M:%S")}')
     job_id_list = []
     driver.get(url)
     time.sleep(5)
 
-    # Count total number of pages in the search result
+    # Count total number of pages in the search result and setting the number of pages to scrape
     max_page = driver.find_element(By.CLASS_NAME, 'jobs-search-results-list__pagination').find_element(By.TAG_NAME, 'ul').find_elements(By.TAG_NAME, 'li')[-1]
     max_page = int(max_page.text)
     num_page = min(max_page, num_page) if num_page > 0 else max_page
@@ -102,6 +106,7 @@ def get_all_job_ids_from_page(driver, search_term, location_term, num_page=-1):
         if err_count > 0:
             total_err_count.append((p, err_count))
 
+    # Error printing (if there is any)
     if len(total_err_count) > 0:
         err_count_temp = ['Some jobs could not be scraped:']
         err_count_temp.extend([f' - {err[1]} jobs on page {err[0]}' for err in total_err_count])
@@ -111,14 +116,13 @@ def get_all_job_ids_from_page(driver, search_term, location_term, num_page=-1):
 
     # Remove dupes
     job_id_list = list(set(job_id_list))
-    print(f'---> Found total {len(job_id_list)} unique jobs.')
+    print(f'>>> Found total {len(job_id_list)} unique jobs.')
 
     return job_id_list, job_id_scrape_time
 
 
 # Scrape INFO
 def get_single_job_info(driver, job_id):
-
     info = {
         'Job ID': job_id,
         'Job URL': f"https://www.linkedin.com/jobs/view/{job_id}",
@@ -131,7 +135,9 @@ def get_single_job_info(driver, job_id):
         'Applicants Count': None,
         'Job Overview': None,
         'Company Overview': None,
-        'HR URL': None
+        'Apply Status': None,
+        'HR URL': None,
+        'Scrape Timestamp': datetime.now()
     }
 
     driver.get(info['Job URL'])
@@ -228,6 +234,17 @@ def get_single_job_info(driver, job_id):
     except NoSuchElementException:
         pass
 
+    # Apply Status
+    # TODO
+    # try:
+    #     apply_button = driver.find_element(By.CSS_SELECTOR, "div[class='jobs-apply-button--top-card'] button li-icon")
+    #     apply_status = apply_button.get_attribute('type')
+    #     if apply_status == 'linkedin-bug':
+    #         info['Apply Status'] = 'External Link'
+    #
+    # except NoSuchElementException:
+    #     pass
+
     # HR URL
     try:
         hr_url = driver.find_element(By.CSS_SELECTOR, "div[class*='hirer-card__hirer-information'] a").get_attribute('href')
@@ -245,6 +262,25 @@ def get_single_job_info(driver, job_id):
         pass
 
     return info
+
+
+# Read ID file
+def read_id_file(file_path):
+    with open(file_path, 'r') as f:
+        lines = [line.strip() for line in f.readlines()]
+
+    line_is_id = False
+    skip = 0
+    while not line_is_id:
+        line = lines[skip]
+        try:
+            jid = int(line)
+            line_is_id = True
+        except ValueError:
+            skip += 1
+    search_terms = lines[:skip]
+    jid_list = lines[skip:]
+    return search_terms, jid_list
 
 
 # ---------------------------------------- LOGIN ---------------------------------------- #
@@ -265,8 +301,84 @@ print('Logging in...')
 actions.login(DRIVER, email, password)
 print('Login successful.')
 
-SEARCH_TERM = input('Enter your job search keywords: ')
-LOCATION_TERM = input('Enter your job search location: ')
+# ---------------------------------------- SEARCHING & SCRAPING ---------------------------------------- #
+
+# SCRAPING JOB IDS
+if args['id']:
+    # Getting searching parameters from input and sanitizing them
+    SEARCH_TERM = input('Enter your job search keywords: ')
+    LOCATION_TERM = input('Enter your job search location: ')
+    NUM_PAGE = input('Enter number of pages to scrape: ')
+    while True:
+        try:
+            NUM_PAGE = int(NUM_PAGE)
+            break
+        except ValueError:
+            NUM_PAGE = input('    Please enter an integer: ')
+
+    # Start scraping
+    print('-'*10 + '> SCRAPING IDS <' + '-'*10)
+    if not args['test']:
+        job_id_list, job_scrape_timestamp = get_all_job_ids_from_page(DRIVER, SEARCH_TERM, LOCATION_TERM, num_page=NUM_PAGE)
+    else:
+        _, job_id_list = read_id_file(os.path.join(DIR_PROJECT, DIR_ID, TEST_ID_FILE))
+        job_scrape_timestamp = datetime.now()
+
+    # Writing job IDs to file
+    id_file_name = f'jobs_{job_scrape_timestamp.strftime("%y%m%d_%H%M%S")}.txt'
+    id_file_path = os.path.join(DIR_PROJECT, DIR_ID, id_file_name)
+    if not args['test']:
+        with open(id_file_path, 'w+') as f:
+            id_file_str = '\n'.join([f'keywords={SEARCH_TERM}',
+                                    f'location={LOCATION_TERM}'] + job_id_list)
+            f.write(id_file_str)
+    print(f'[{job_scrape_timestamp.strftime(r"%Y/%m/%d %H:%M:%S")}] Updated job list at {id_file_path}')
 
 
+# SCRAPING JOB INFO
+if args['info']:
+    # Checking for most recent job ID files
+    id_file_list = sorted(glob(os.path.join(DIR_PROJECT, DIR_ID, 'jobs_*.txt')))
+    if args['test']:
+        id_file_path = os.path.join(DIR_PROJECT, DIR_ID, TEST_ID_FILE)
+    else:
+        id_file_path = id_file_list[-1]  # Most recent file
+    print('\n    '.join(['Most recent ID files'] + id_file_list[-5:]))
+    use_most_recent_file = input(f'Continue with {os.path.basename(id_file_path)}? (y/n) ').lower()
+    while True:
+        if use_most_recent_file not in ('y', 'n'):
+            use_most_recent_file = input(f'    Please enter "y" or "n": ')
+        else:
+            break
 
+    # Check if continue
+    if use_most_recent_file == 'n':
+        print('Aborted scraping job info.')
+    else:
+        # Read most recent ID file
+        _, job_id_list = read_id_file(id_file_path)
+        print(f'Found {len(job_id_list)} jobs.')
+
+        # Start scraping
+        print('-'*10 + '> SCRAPING INFO <' + '-'*10)
+        job_info_list = []
+        for job_id in tqdm(job_id_list):
+            try:
+                job_info = get_single_job_info(DRIVER, job_id)
+                job_info_list.append(job_info)
+            except Exception as e:
+                print(e)
+
+        # Convert to DataFrame and write to CSV file
+        job_df = pd.DataFrame(job_info_list)
+        info_file_path = os.path.join(DIR_PROJECT, DIR_INFO, os.path.basename(id_file_path)[:-3] + 'csv')
+        job_df.to_csv(info_file_path, index=False)
+        print(f'Updated job info at {info_file_path}.')
+        print('-'*5 + ' Sample first row ' + '-'*5)
+        print(job_df.iloc[0])
+
+# Finally close and quit webdriver
+print('-' * 30)
+DRIVER.quit()
+print('Driver closed.')
+print('DONE')
