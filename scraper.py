@@ -137,7 +137,9 @@ def get_single_job_info(driver, job_id):
         'Company Overview': None,
         'Apply Status': None,
         'HR URL': None,
-        'Scrape Timestamp': datetime.now()
+        'Scrape Timestamp': datetime.now(),
+        'Job Details': None,
+        'Company Details': None
     }
 
     driver.get(info['Job URL'])
@@ -145,14 +147,16 @@ def get_single_job_info(driver, job_id):
 
     # Job Name
     try:
-        name = driver.find_element(By.CLASS_NAME, "jobs-unified-top-card__job-title").get_attribute("innerHTML")
+        class_name = "jobs-unified-top-card__job-title"
+        name = driver.find_element(By.CLASS_NAME, class_name).get_attribute("innerHTML")
         info['Name'] = name.strip()
     except NoSuchElementException:
         pass
 
     # Company
     try:
-        company = driver.find_element(By.CLASS_NAME, "jobs-unified-top-card__company-name").find_element(By.TAG_NAME, 'a').get_attribute("innerHTML")
+        css_selector = "span[class*='jobs-unified-top-card__company-name'] a"
+        company = driver.find_element(By.CSS_SELECTOR, css_selector).get_attribute("innerHTML")
         info['Company'] = company.strip()
     except NoSuchElementException:
         pass
@@ -166,33 +170,47 @@ def get_single_job_info(driver, job_id):
 
     # Location
     try:
-        location = driver.find_element(By.CLASS_NAME, "jobs-unified-top-card__subtitle-primary-grouping").find_element(By.CLASS_NAME, "jobs-unified-top-card__bullet").get_attribute("innerHTML")
+        pat = 'jobs-unified-top-card'
+        css_selector = f"span[class*='{pat}__subtitle-primary-grouping'] span[class*='{pat}__bullet']"
+        location = driver.find_element(By.CSS_SELECTOR, css_selector).get_attribute("innerHTML")
         info['Location'] = location.strip()
     except NoSuchElementException:
         pass
 
     # Workplace Type
     try:
-        work_type = driver.find_element(By.CLASS_NAME, "jobs-unified-top-card__workplace-type").get_attribute("innerHTML")
+        class_name = "jobs-unified-top-card__workplace-type"
+        work_type = driver.find_element(By.CLASS_NAME, class_name).get_attribute("innerHTML")
         info['Workplace Type'] = work_type.strip()
     except NoSuchElementException:
         pass
 
     # Time Posted
     try:
-        time_posted = driver.find_element(By.CLASS_NAME, "jobs-unified-top-card__posted-date").get_attribute("innerHTML")
+        class_name = "jobs-unified-top-card__posted-date"
+        time_posted = driver.find_element(By.CLASS_NAME, class_name).get_attribute("innerHTML")
         info['Time Posted'] = time_posted.strip()
     except NoSuchElementException:
         pass
 
     # Applicants Count
     try:
-        applicants = driver.find_element(By.CLASS_NAME, "jobs-unified-top-card__subtitle-secondary-grouping").find_element(By.CLASS_NAME, "jobs-unified-top-card__applicant-count").get_attribute("innerHTML")
-        info['Applicants Count'] = applicants.strip()
+        pat = 'jobs-unified-top-card'
+        css_selector = f"div[class*='mb2'] li[class*='{pat}__job-insight--highlight'] > span"
+        applicants = driver.find_element(By.CSS_SELECTOR, css_selector).text
+        app_counts = re.search(r'(\d+) applicants', applicants.lower())
+        if app_counts is not None:
+            info['Applicants Count'] = int(app_counts.group(1))
+        else:
+            raise NoSuchElementException
     except NoSuchElementException:
         try:
-            applicants = driver.find_element(By.CLASS_NAME, "jobs-unified-top-card__subtitle-secondary-grouping").find_element(By.CLASS_NAME, "jobs-unified-top-card__bullet").get_attribute("innerHTML")
-            info['Applicants Count'] = applicants.strip()
+            pat = 'jobs-unified-top-card'
+            css_selector = f"span[class*='{pat}__subtitle-secondary-grouping'] span[class*='{pat}__bullet']"
+            applicants = driver.find_element(By.CSS_SELECTOR, css_selector).text
+            app_counts = re.search(r'(\d+) applicants', applicants.lower())
+            if app_counts is not None:
+                info['Applicants Count'] = int(app_counts.group(1))
         except NoSuchElementException:
             pass
 
@@ -235,19 +253,27 @@ def get_single_job_info(driver, job_id):
         pass
 
     # Apply Status
-    # TODO
-    # try:
-    #     apply_button = driver.find_element(By.CSS_SELECTOR, "div[class='jobs-apply-button--top-card'] button li-icon")
-    #     apply_status = apply_button.get_attribute('type')
-    #     if apply_status == 'linkedin-bug':
-    #         info['Apply Status'] = 'External Link'
-    #
-    # except NoSuchElementException:
-    #     pass
+    try:
+        css_selector = "div[class='jobs-apply-button--top-card'] button li-icon"
+        apply_button = driver.find_element(By.CSS_SELECTOR, css_selector)
+        apply_status = apply_button.get_attribute('type')
+        if apply_status == 'linkedin-bug':
+            info['Apply Status'] = 'Easy Apply'
+        elif apply_status == 'link-external':
+            info['Apply Status'] = 'External Link'
+    except NoSuchElementException:
+        try:
+            css_selector = "div[class*='jobs-details-top-card__apply-error'] li-icon"
+            apply_button = driver.find_element(By.CSS_SELECTOR, css_selector)
+            if apply_button.get_attribute('type') == 'error-pebble-icon':
+                info['Apply Status'] = 'Closed'
+        except NoSuchElementException:
+            pass
 
     # HR URL
     try:
-        hr_url = driver.find_element(By.CSS_SELECTOR, "div[class*='hirer-card__hirer-information'] a").get_attribute('href')
+        css_selector = "div[class*='hirer-card__hirer-information'] a"
+        hr_url = driver.find_element(By.CSS_SELECTOR, css_selector).get_attribute('href')
         info['HR URL'] = hr_url.strip()
     except NoSuchElementException:
         pass
@@ -258,6 +284,16 @@ def get_single_job_info(driver, job_id):
         pat = r'<!--(?=.*?-->).*?-->'
         job_details = re.sub(pat, '', job_details, flags=re.DOTALL)  # Remove all HTML comments
         info['Job Details'] = job_details.strip()
+    except NoSuchElementException:
+        pass
+
+    # Company details
+    try:
+        css_selector = "div[class='jobs-company__box'] p div"
+        job_details = driver.find_element(By.CSS_SELECTOR, css_selector).get_attribute('innerHTML')
+        pat = r'<!--(?=.*?-->).*?-->'
+        job_details = re.sub(pat, '', job_details, flags=re.DOTALL)  # Remove all HTML comments
+        info['Company Details'] = job_details.strip()
     except NoSuchElementException:
         pass
 
