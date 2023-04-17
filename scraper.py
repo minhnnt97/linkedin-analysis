@@ -68,7 +68,7 @@ DRIVER = webdriver.Chrome(service=service, options=options)
 # Scrape ID
 def get_all_job_ids_from_page(driver, search_term, location_term, num_page=-1):
     # Preparing the search URL
-    base_url = 'https://www.linkedin.com/jobs'
+    base_url = 'https://www.linkedin.com/jobs/search'
     keyword_url = f'keywords={urllib.parse.quote(search_term)}'
     location_url = f'location={urllib.parse.quote(location_term)}'
     url = f'{base_url}/?{keyword_url}&{location_url}&refresh=true'
