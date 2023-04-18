@@ -155,8 +155,8 @@ def get_single_job_info(driver, job_id):
 
     # Company
     try:
-        css_selector = "span[class*='jobs-unified-top-card__company-name'] a"
-        company = driver.find_element(By.CSS_SELECTOR, css_selector).get_attribute("innerHTML")
+        css_selector = "span[class*='jobs-unified-top-card__company-name']"
+        company = driver.find_element(By.CSS_SELECTOR, css_selector).text
         info['Company'] = company.strip()
     except NoSuchElementException:
         pass
