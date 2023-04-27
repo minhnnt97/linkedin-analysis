@@ -3,7 +3,7 @@
 /.idea/modules.xml
 /.idea/*.iml
 /chromedriver_mac_arm64/
-Chromedriver/.DS_Store
-Chromedriver/chromedriver_mac_arm64/chromedriver
-Chromedriver/chromedriver_mac_arm64/LICENSE.chromedriver
+Chromedriver/
+/login.txt
+/chromedriver
 
